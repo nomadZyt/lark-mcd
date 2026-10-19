@@ -1,0 +1,26 @@
+{
+  "name": "lark-mcd",
+  "version": "0.1.0",
+  "private": true,
+  "description": "麦麦卡片：在飞书里点麦当劳。私聊说「老样子」，核价卡片和会员卡小算盘都在本机运行。",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "demo": "tsx src/cli/demo.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.59.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.30",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.1"
+  }
+}

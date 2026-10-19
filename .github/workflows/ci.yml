@@ -1,0 +1,29 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run demo
+      - name: 确认没有提交密钥
+        run: |
+          if git ls-files | grep -E '(^|/)\.env$'; then
+            echo ".env 被跟踪了"
+            exit 1
+          fi
+          if git grep -nE 'AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{20,}|xox[baprs]-|sk-ant-' -- ':!package-lock.json' ':!.github/workflows/*'; then
+            echo "疑似密钥"
+            exit 1
+          fi

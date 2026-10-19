@@ -1,0 +1,37 @@
+{
+  "_notice": "演示数据，来源于 2026-10-19 的一次只读调用并已脱敏和裁剪；价格不代表实时价格。",
+  "success": true,
+  "code": 200,
+  "message": "请求成功",
+  "datetime": "2026-10-19 15:22:25",
+  "traceId": "demo-trace-order-list",
+  "data": {
+    "list": [
+      {
+        "orderId": "DEMO-ORDER-0001",
+        "orderType": "1",
+        "createTime": "2026-04-30 17:59:20",
+        "beType": "1",
+        "beCode": "",
+        "storeCode": "DEMO-A",
+        "storeName": "演示门店 A",
+        "orderStatus": "订单已完成",
+        "orderProductList": [
+          {
+            "productCode": "9900015730",
+            "productName": "BFF四宫格小食盘",
+            "quantity": 1,
+            "comboItemList": []
+          },
+          {
+            "productCode": "1440",
+            "productName": "麦辣鸡腿汉堡",
+            "quantity": 2,
+            "comboItemList": []
+          }
+        ],
+        "realTotalAmount": "84.8"
+      }
+    ]
+  }
+}

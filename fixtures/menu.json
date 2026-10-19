@@ -1,0 +1,72 @@
+{
+  "_notice": "演示数据，来源于 2026-10-19 的一次只读调用并已脱敏和裁剪；价格不代表实时价格。",
+  "frequent": { "code": "1440", "tags": ["我的常点"] },
+  "meals": {
+    "1440": {
+      "name": "麦辣鸡腿汉堡",
+      "currentPrice": "22.5",
+      "originalPrice": "22.5",
+      "canWithOrder": false
+    },
+    "9900015730": {
+      "name": "BFF四宫格小食盘",
+      "currentPrice": "39.8",
+      "originalPrice": "54.5",
+      "canWithOrder": false
+    },
+    "511781": {
+      "name": "培根安格斯厚牛堡",
+      "currentPrice": "34.5",
+      "originalPrice": "34.5",
+      "canWithOrder": false
+    },
+    "9900005456": {
+      "name": "麦辣鸡腿汉堡三件套",
+      "currentPrice": "33.5",
+      "originalPrice": "46",
+      "canWithOrder": false
+    },
+    "9900000891": {
+      "name": "麦辣鸡腿堡四件套",
+      "currentPrice": "28",
+      "originalPrice": "57",
+      "discountType": "随单购麦金卡优惠",
+      "canWithOrder": true,
+      "withOrder": { "membershipCode": "106", "specId": "SPEC-DEMO" }
+    },
+    "5022": {
+      "name": "猪柳蛋麦满分",
+      "currentPrice": "18",
+      "originalPrice": "18",
+      "canWithOrder": false
+    },
+    "9900008094": {
+      "name": "吉士蛋麦满分组合",
+      "currentPrice": "7.2",
+      "originalPrice": "12",
+      "discountType": "随单购早餐卡优惠",
+      "canWithOrder": true,
+      "withOrder": { "cardId": "CRD-DEMO-BREAKFAST", "cardType": 2 }
+    },
+    "1700": {
+      "name": "麦辣鸡翅",
+      "currentPrice": "15",
+      "originalPrice": "15",
+      "canWithOrder": false
+    },
+    "6352": {
+      "name": "阳光橙麦炫酷",
+      "currentPrice": "13",
+      "originalPrice": "13",
+      "canWithOrder": false
+    },
+    "9900005321": {
+      "name": "BFF四宫格小食盘双人餐",
+      "currentPrice": "62.9",
+      "originalPrice": "122.5",
+      "discountType": "随单购麦金卡优惠",
+      "canWithOrder": true,
+      "withOrder": { "membershipCode": "106", "specId": "SPEC-DEMO" }
+    }
+  }
+}

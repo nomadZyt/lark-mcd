@@ -1,0 +1,31 @@
+{
+  "_notice": "演示数据，来源于 2026-10-19 的一次只读调用并已脱敏和裁剪；价格不代表实时价格。门店名和编号都是假的。",
+  "stores": [
+    {
+      "storeCode": "DEMO-A",
+      "storeName": "演示门店 A",
+      "businessStatus": true,
+      "reservation": true,
+      "reservationTimeOptions": [
+        {
+          "date": "2026-10-20",
+          "today": false,
+          "reservationOptionText": "早餐(05:14至10:15)，午餐(10:44至14:15)"
+        }
+      ]
+    },
+    {
+      "storeCode": "DEMO-B",
+      "storeName": "演示门店 B",
+      "businessStatus": true,
+      "reservation": true,
+      "reservationTimeOptions": [
+        {
+          "date": "2026-10-20",
+          "today": false,
+          "reservationOptionText": "早餐(06:44至10:15)，午餐(10:44至14:15)"
+        }
+      ]
+    }
+  ]
+}
