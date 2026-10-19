@@ -1,0 +1,32 @@
+{
+  "_notice": "演示数据，来源于 2026-10-19 的一次只读调用并已脱敏和裁剪；价格不代表实时价格。",
+  "store": {
+    "storeCode": "DEMO-A",
+    "storeName": "演示门店 A",
+    "city": "演示市",
+    "keyword": "演示广场"
+  },
+  "favorite": {
+    "savedAt": "2026-10-19T12:00:00+08:00",
+    "items": [
+      {
+        "productCode": "1440",
+        "quantity": 2,
+        "name": "麦辣鸡腿汉堡"
+      },
+      {
+        "productCode": "9900000891",
+        "quantity": 1,
+        "name": "麦辣鸡腿堡四件套",
+        "canWithOrder": true,
+        "discountType": "随单购麦金卡优惠",
+        "originalPriceYuan": "57",
+        "memberPriceYuan": "28",
+        "withOrder": {
+          "membershipCode": "106",
+          "membershipSpecId": "SPEC-DEMO"
+        }
+      }
+    ]
+  }
+}

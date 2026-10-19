@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+.env
+.env.*
+!.env.example
+*.env
+
+.DS_Store
+*.log
+
+# 本机状态（老样子、默认门店、上次价格）不出仓库
+.lark-mcd/
