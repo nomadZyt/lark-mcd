@@ -57,15 +57,55 @@ sequenceDiagram
 
 付款按钮是 `open_url`，不走回调。卡片回传值只有动作名、会话 ID 和版本号，不放 Token，也不放完整价格。
 
+## Agent 入口
+
+飞书卡片机器人仍是唯一会调用 `create-order` / `cancel-order` 的路径。`lark-mcd agent` 只做只读查询，以及一次不调用 MCP 的 `propose`。安装和宿主配置见 [docs/agents.md](docs/agents.md)。
+
+| 命令 | 工具 | 是否写入 |
+| --- | --- | --- |
+| `agent stores` | `query-nearby-stores` | 否 |
+| `agent menu` | `query-meals`（本机缓存 5 分钟） | 否 |
+| `agent quote` | `calculate-price` | 否，报价落在本机，5 分钟有效 |
+| `agent status` | `order-list` 或 `query-order` | 否 |
+| `agent propose` | 不调用 MCP | 否，只给 Token 主人发飞书确认卡片 |
+
+没有 `order` / `cancel` 子命令。触发器 `kind` 为 `agent` 时，守卫对 `create-order` 和 `cancel-order` 直接返回 `TOOL_DISABLED`。Agent 还有本机限速：每分钟 6 次、每天 60 次（北京时间）。需要环境变量 `LARK_MCD_AGENT=1`，并且不要放进定时任务或心跳。
+
+```mermaid
+sequenceDiagram
+    actor A as 助手
+    participant C as lark-mcd agent
+    participant M as 麦当劳 MCP
+    participant F as 飞书
+    actor U as Token 主人
+    A->>C: quote --json
+    C->>M: calculate-price
+    C-->>A: quoteId
+    A->>C: propose --quote quoteId
+    Note over C,M: propose 不调用 MCP
+    C->>F: 私聊确认卡片
+    U->>F: 点「确认下单」
+    F->>C: card.action.trigger
+    alt DRY_RUN=true
+        C->>F: 演练卡片，没有下单
+    else DRY_RUN=false
+        C->>M: create-order
+        C->>F: 付款链接
+    end
+```
+
+不要把 Token 配进宿主的 MCP 连接器去直连 `https://mcp.mcd.cn`。那会绕过上表的守卫。`mcp-config.example.json` 只给本机机器人以外的参考客户端，Agent 入口不使用它。
+
 ## 守卫
 
-`McpClient.call()` 必须带上 `trigger`：`kind`（消息或卡片）、`eventId`、`operatorOpenId`、`action`。
+`McpClient.call()` 必须带上 `trigger`：`kind`（消息、卡片或 `agent`）、`eventId`、`operatorOpenId`、`action`。
 
 下面任一情况都会在发请求前抛错：
 
 - 没有 trigger
 - `operatorOpenId` 不是 `OWNER_OPEN_ID`
 - 工具不在白名单里
+- `kind` 是 `agent`，并且工具是 `create-order` 或 `cancel-order`（`TOOL_DISABLED`）
 - 同一次点击超过上表的次数
 - 写操作不是卡片点击，或草稿还没核价
 - `DRY_RUN` 不是字符串 `false`

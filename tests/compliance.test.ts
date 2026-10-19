@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { GuardError, McpGuard } from "../src/core/guard.js";
 import { loadFixtures } from "../src/core/mock-mcp.js";
 
 const DECLARATION_SHA256 = "cd28101bcb29cc8fb24b372fe91ce6b42c4a1487a54e01f7ade0c8c6a84241b7";
@@ -44,6 +45,37 @@ describe("合规", () => {
   it("参赛声明和官方文件一致", () => {
     const bytes = readFileSync("CONTEST_DECLARATION.md");
     expect(createHash("sha256").update(bytes).digest("hex")).toBe(DECLARATION_SHA256);
+  });
+
+  it("Agent 触发的下单和取消返回 TOOL_DISABLED", () => {
+    const guard = new McpGuard({ ownerOpenId: "owner", dryRun: false });
+    const base = {
+      kind: "agent" as const,
+      operatorOpenId: "owner",
+      action: "agent.quote" as const,
+    };
+    for (const [tool, eventId, meta] of [
+      ["create-order", "c1", { draftId: "d1", draftStatus: "priced" as const }],
+      ["cancel-order", "c2", { orderId: "o1" }],
+    ] as const) {
+      try {
+        guard.begin(tool, { ...base, eventId }, meta);
+        expect.unreachable();
+      } catch (error) {
+        expect(error).toBeInstanceOf(GuardError);
+        expect((error as GuardError).code).toBe("TOOL_DISABLED");
+      }
+    }
+  });
+
+  it("Agent 目录不会自己调用下单或取消", () => {
+    const files = walk("src/agent");
+    expect(files.length).toBeGreaterThan(0);
+    for (const file of files) {
+      const text = readFileSync(file, "utf8");
+      expect(text, file).not.toMatch(/\.call\(\s*["'](?:create-order|cancel-order)["']/);
+      expect(text, file).not.toMatch(/\.begin\(\s*["'](?:create-order|cancel-order)["']/);
+    }
   });
 
   it("演示菜单不超过 10 个商品，门店编号是假的", () => {

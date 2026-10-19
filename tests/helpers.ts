@@ -3,12 +3,14 @@ import { loadFixtures, MockMcpClient } from "../src/core/mock-mcp.js";
 import { OrderFlow, type CardInput, type IncomingMessage } from "../src/bot/flow.js";
 import { SessionBook } from "../src/bot/session.js";
 import { loadDemoState, MemoryStateStore, type AppState } from "../src/bot/state.js";
+import type { ProposalStore } from "../src/agent/proposal-store.js";
 
 export function setup(options?: {
   dryRun?: boolean;
   owner?: string;
   now?: () => number;
   state?: AppState;
+  proposals?: ProposalStore;
 }) {
   const owner = options?.owner ?? "owner";
   const dryRun = options?.dryRun ?? true;
@@ -19,6 +21,7 @@ export function setup(options?: {
     ownerOpenId: owner,
     dryRun,
     now: options?.now ?? (() => Date.parse("2026-10-19T12:00:00+08:00")),
+    proposals: options?.proposals,
   });
   return { guard, mcp, state, flow, owner };
 }

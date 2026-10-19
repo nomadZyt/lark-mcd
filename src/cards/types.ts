@@ -65,6 +65,15 @@ export type CardModel =
       title: string;
       lines: string[];
       sessionId?: string;
+    }
+  | {
+      kind: "agent-propose";
+      sessionId: string;
+      storeName: string;
+      lines: CardLine[];
+      totalFen: number;
+      takeWayTitle: string;
+      dryRun: boolean;
     };
 
 export interface FeishuCard {

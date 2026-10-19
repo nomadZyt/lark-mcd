@@ -1,0 +1,4 @@
+name: lark-mcd
+version: 0.1.0
+description: 在本机查询麦当劳门店、菜单并核价，再把报价推到飞书，由本人点按钮确认下单。
+author: lark-mcd

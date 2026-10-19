@@ -58,6 +58,8 @@ export function buildCard(model: CardModel): FeishuCard {
       return buildStores(model);
     case "note":
       return card(model.title, "wathet", [markdown(model.lines.join("\n"))]);
+    case "agent-propose":
+      return buildAgentPropose(model);
   }
 }
 
@@ -203,6 +205,27 @@ function buildConfirmCancel(model: Extract<CardModel, { kind: "confirm-cancel" }
     markdown(`订单号 ${model.orderTail}\n取消后如果还想吃，请重新发送「老样子」。`),
     callbackButton("确认取消", "danger", { a: "order.cancel.confirm", sid: model.sessionId, v: 1 }),
     callbackButton("先不取消", "default", { a: "order.back", sid: model.sessionId, v: 1 }),
+  ]);
+}
+
+function buildAgentPropose(model: Extract<CardModel, { kind: "agent-propose" }>): FeishuCard {
+  return card(`确认这份报价 · ${model.storeName}`, "orange", [
+    markdown(lineText(model.lines)),
+    { tag: "hr" },
+    markdown(
+      [
+        `合计 ${formatYuanFromFen(model.totalFen)}`,
+        `到店自取 · ${model.takeWayTitle}`,
+        "这是 Agent 提议，还没有下单。",
+        "请你本人点「确认下单」。",
+        model.dryRun
+          ? "当前是演练模式，点确认也不会调用下单接口。"
+          : "点确认后才会向麦当劳下单。付款在麦当劳页面完成。",
+        "报价大约 5 分钟内有效。",
+      ].join("\n"),
+    ),
+    callbackButton("确认下单", "primary", { a: "order.confirm", sid: model.sessionId, v: 1 }),
+    callbackButton("不吃了", "danger", { a: "order.dismiss", sid: model.sessionId, v: 1 }),
   ]);
 }
 

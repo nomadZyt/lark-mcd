@@ -7,10 +7,14 @@ export type ActionName =
   | "reprice"
   | "confirm"
   | "refresh"
-  | "cancel";
+  | "cancel"
+  | "agent.stores"
+  | "agent.menu"
+  | "agent.quote"
+  | "agent.status";
 
 export interface Trigger {
-  kind: "message" | "card";
+  kind: "message" | "card" | "agent";
   eventId: string;
   operatorOpenId: string;
   action: ActionName;
@@ -94,6 +98,10 @@ export const ACTION_CALL_BUDGET: Record<ActionName, number> = {
   confirm: 1,
   refresh: 1,
   cancel: 1,
+  "agent.stores": 1,
+  "agent.menu": 1,
+  "agent.quote": 1,
+  "agent.status": 1,
 };
 
 export const QUOTE_TTL_MS = 5 * 60 * 1000;
