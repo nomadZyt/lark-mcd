@@ -57,6 +57,7 @@ export class McpGuard {
     if ((REJECTED_WRITE_TOOLS as readonly string[]).includes(tool) || !(ENABLED_TOOLS as readonly string[]).includes(tool)) {
       throw new GuardError("TOOL_DISABLED", "这个工具不在白名单里");
     }
+    if (trigger.kind === "agent") this.assertAgent(tool);
 
     const action = trigger.action;
     if (!(action in ACTION_CALL_BUDGET)) {
@@ -88,6 +89,13 @@ export class McpGuard {
     if (!ticket.writeKey) return;
     this.inflight.delete(ticket.writeKey);
     if (delivered) this.completed.add(ticket.writeKey);
+  }
+
+  /** Agent 入口只能查询。下单和取消仍必须由飞书卡片点击触发。 */
+  private assertAgent(tool: string): void {
+    if (tool === "create-order" || tool === "cancel-order") {
+      throw new GuardError("TOOL_DISABLED", "Agent 入口不能下单或取消订单");
+    }
   }
 
   private assertWrite(tool: string, trigger: Trigger, meta: GuardMeta, ticket: GuardTicket): void {

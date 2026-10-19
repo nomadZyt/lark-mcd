@@ -17,6 +17,7 @@ jobs:
       - run: npm test
       - run: npm run typecheck
       - run: npm run demo
+      - run: npm run pack-skill
       - name: 确认没有提交密钥
         run: |
           if git ls-files | grep -E '(^|/)\.env$'; then

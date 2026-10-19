@@ -11,5 +11,8 @@ coverage/
 .DS_Store
 *.log
 
-# 本机状态（老样子、默认门店、上次价格）不出仓库
+# 本机状态（老样子、默认门店、上次价格、Agent 报价和限速）不出仓库
 .lark-mcd/
+agent-rate.json
+agent-board.json
+agent-menu-cache.json

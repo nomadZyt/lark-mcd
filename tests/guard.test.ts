@@ -68,6 +68,35 @@ describe("MCP guard", () => {
     }
   });
 
+  it("Agent 来源不能下单或取消，错误码是 TOOL_DISABLED", () => {
+    for (const dryRun of [true, false]) {
+      const guard = new McpGuard({ ownerOpenId: "owner", dryRun });
+      const agent = trigger({ kind: "agent", action: "agent.quote", eventId: `agent-${dryRun}` });
+      expect(() => guard.begin("create-order", agent, { draftId: "d1", draftStatus: "priced" })).toThrow(GuardError);
+      try {
+        guard.begin("create-order", { ...agent, eventId: `create-${dryRun}` }, { draftId: "d1", draftStatus: "priced" });
+        expect.unreachable();
+      } catch (error) {
+        expect(error).toBeInstanceOf(GuardError);
+        expect((error as GuardError).code).toBe("TOOL_DISABLED");
+        expect((error as GuardError).message).not.toMatch(/演练/);
+      }
+      try {
+        guard.begin("cancel-order", { ...agent, action: "agent.status", eventId: `cancel-${dryRun}` }, { orderId: "o1" });
+        expect.unreachable();
+      } catch (error) {
+        expect((error as GuardError).code).toBe("TOOL_DISABLED");
+      }
+    }
+  });
+
+  it("Agent 来源可以核价", () => {
+    const guard = new McpGuard({ ownerOpenId: "owner", dryRun: true });
+    expect(() =>
+      guard.begin("calculate-price", trigger({ kind: "agent", action: "agent.quote", eventId: "quote-1" })),
+    ).not.toThrow();
+  });
+
   it("同一订单 10 秒内只能刷新一次", () => {
     const guard = new McpGuard({ ownerOpenId: "owner", dryRun: true });
     guard.begin("query-order", trigger({ action: "refresh", eventId: "r1" }), { orderId: "order-1", now: 10_000 });

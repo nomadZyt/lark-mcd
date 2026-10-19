@@ -1,4 +1,6 @@
+import { dirname } from "node:path";
 import { EventDispatcher, LoggerLevel, WSClient } from "@larksuiteoapi/node-sdk";
+import { FileProposalStore } from "../agent/proposal-store.js";
 import { McpGuard } from "../core/guard.js";
 import { HttpMcpClient } from "../core/mcp-client.js";
 import { loadFixtures, MockMcpClient } from "../core/mock-mcp.js";
@@ -23,6 +25,7 @@ export async function startBot(config: AppConfig): Promise<void> {
     ownerOpenId: config.ownerOpenId,
     dryRun: config.dryRun,
     now: () => Date.now(),
+    proposals: new FileProposalStore(dirname(config.statePath)),
   });
   const outbound = new LarkOutbound(config.feishuAppId, config.feishuAppSecret);
   const runtime = { flow, outbound, ownerOpenId: config.ownerOpenId };

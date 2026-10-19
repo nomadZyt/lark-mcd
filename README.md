@@ -17,6 +17,7 @@
 - 点「确认下单」：默认演练模式，只展示将要提交的内容。把 `DRY_RUN=false` 写进本机 `.env` 之后，才会调用 `create-order`，并给出麦当劳返回的付款链接。
 - 点「我付好了，刷新」：调用一次 `query-order`，显示订单状态和取餐码。同一订单 10 秒内只能刷新一次。
 - 会员卡小算盘：再核一次带随单购参数的价格，算出餐品大约能省多少、按你填的频率大概几次回本。它不下单，也不购买会员卡。
+- Agent 入口：WorkBuddy、OpenClaw、Hermes 或 Claude Code 可以查门店、菜单、核价和订单，并把报价推到飞书。它们不能下单。
 
 群投票、一人下单、报销表、前一晚提醒和网页模拟器还没做，接口留在 `src/extensions.ts`。
 
@@ -82,11 +83,28 @@ DRY_RUN=true
 
 先保持 `DRY_RUN=true` 走一遍。卡片会核价，但点「确认下单」不会调用 `create-order`。确认没问题后，才把 `DRY_RUN` 改成 `false`。付款链接打开的是麦当劳的页面，这个程序不付款、不代收。
 
-`mcp-config.example.json` 只给 Cursor 一类 MCP 客户端做参考，里面是 `${MCD_MCP_TOKEN}` 占位符。机器人自己读环境变量，不读这个文件。
+`mcp-config.example.json` 只给 Cursor 一类 MCP 客户端做参考，里面是 `${MCD_MCP_TOKEN}` 占位符。机器人自己读环境变量，不读这个文件。Agent 入口不要使用这份直连配置。
+
+## Agent 入口 / WorkBuddy
+
+飞书卡片机器人仍然是唯一可以下单和取消订单的地方。Agent 入口只能查门店、菜单、核价、订单状态，以及 `propose`：把报价推到你的飞书私聊。你在卡片上点「确认下单」之后，才走原来的演练或下单流程。
+
+安装、以及 WorkBuddy / OpenClaw / Hermes / Claude Code 的配置，见 [docs/agents.md](docs/agents.md)。技能文件在 `skills/lark-mcd/SKILL.md`。
+
+```bash
+# 本机 .env 或环境变量。不要写进 cron、heartbeat 或定时任务。
+LARK_MCD_AGENT=1
+node bin/lark-mcd.mjs agent stores --near "上海 人民广场" --json
+```
+
+不要把 `MCD_MCP_TOKEN` 填进 WorkBuddy、OpenClaw 或 Hermes 的 MCP 连接器，也不要让它们直连 `https://mcp.mcd.cn`。那样会绕过守卫，模型还能看到领券和抽奖一类工具。Token 只放在本机环境变量或 `.env`。
+
+`workbuddy.md` 需要你本人在腾讯 WorkBuddy 里导出真实对话后再填。云端编码会话不算 WorkBuddy 使用。
 
 ## 安全与合规
 
-- 不自动下单。没有你当场发消息或点按钮，就不会调用麦当劳接口。
+- 不自动下单。没有你当场发消息或点按钮，就不会调用麦当劳接口。Agent 入口也不能下单。
+- 不要把 Agent 命令放进定时任务、心跳或后台任务。`LARK_MCD_AGENT=1` 只在你当面使用时打开。
 - 不自动付款。订单只给你付款链接，钱不经过这个程序。
 - 不轮询。没有定时器去查订单或刷菜单。刷新订单必须再点一次，而且 10 秒内只能点一次。
 - 不领券，不抽奖，不兑换积分，不创建外送地址。这些工具没有实现。
@@ -129,4 +147,4 @@ npm test
 npm run demo
 ```
 
-The bot runs on your own computer over a Feishu WebSocket long connection. It does not auto-order, auto-pay, poll, or claim coupons. The MCP token stays in a local `.env` file. `DRY_RUN=true` unless you set `DRY_RUN=false`. Group voting, split-the-bill sheets, and the evening reminder are not in this version.
+The bot runs on your own computer over a Feishu WebSocket long connection. It does not auto-order, auto-pay, poll, or claim coupons. The MCP token stays in a local `.env` file. `DRY_RUN=true` unless you set `DRY_RUN=false`. An agent entry can look up stores, menus, quotes, and order status, then push a Feishu confirm card. It cannot place or cancel an order. See [docs/agents.md](docs/agents.md). Group voting, split-the-bill sheets, and the evening reminder are not in this version.

@@ -17,6 +17,7 @@ import {
 } from "../core/types.js";
 import { eligibleWithOrder, isCombo, type Draft, type PriceQuote, type QuoteLine, SessionBook } from "./session.js";
 import { itemsFromState, type StateStore } from "./state.js";
+import type { AgentProposal, ProposalStore } from "../agent/proposal-store.js";
 
 export interface IncomingMessage {
   eventId: string;
@@ -81,7 +82,12 @@ export class OrderFlow {
     private readonly mcp: McpClient,
     private readonly state: StateStore,
     private readonly sessions: SessionBook,
-    private readonly options: { ownerOpenId: string; dryRun: boolean; now: () => number },
+    private readonly options: {
+      ownerOpenId: string;
+      dryRun: boolean;
+      now: () => number;
+      proposals?: ProposalStore;
+    },
   ) {}
 
   async onMessage(input: IncomingMessage): Promise<FlowResult> {
@@ -109,14 +115,18 @@ export class OrderFlow {
         return { toast: { type: "warning", content: NOT_OWNER } };
       }
       if (input.action === "store.pick") return this.pickStore(input);
-      const draft = input.sessionId ? this.sessions.get(input.sessionId) : undefined;
+      const loaded = this.resolveDraft(input.sessionId);
+      if (loaded.early) return loaded.early;
+      const draft = loaded.draft;
       if (!draft || draft.status === "cancelled") {
         return { toast: { type: "error", content: "这张卡片过期了，请重新发送「老样子」" } };
       }
       if (draft.pending) return { toast: { type: "info", content: "正在处理，请稍候" } };
       draft.pending = true;
       try {
-        return await this.dispatchCard(input, draft);
+        const result = await this.dispatchCard(input, draft);
+        this.syncProposal(draft);
+        return result;
       } finally {
         draft.pending = false;
       }
@@ -599,6 +609,82 @@ export class OrderFlow {
   private cardFor(draft: Draft): FeishuCard {
     if (draft.status === "ordered") return this.payCard(draft);
     return this.pricedCard(draft, this.quoteExpired(draft) ? "核价已过期，请先重新核价。" : undefined);
+  }
+
+  private resolveDraft(sessionId: string | undefined): { draft?: Draft; early?: FlowResult } {
+    if (!sessionId) return {};
+    const existing = this.sessions.get(sessionId);
+    if (existing) return { draft: existing };
+    const store = this.options.proposals;
+    if (!store) return {};
+    const proposal = store.getProposal(sessionId);
+    if (!proposal) return {};
+    if (proposal.status === "confirmed") {
+      return { early: { toast: { type: "info", content: "这份提议已经确认过了" } } };
+    }
+    if (proposal.status === "dismissed") {
+      return { early: { toast: { type: "info", content: "这份提议已经放下了" } } };
+    }
+    if (this.options.now() - proposal.quote.quotedAt > QUOTE_TTL_MS) {
+      return {
+        early: {
+          toast: { type: "error", content: "报价已过期，请让助手重新核价" },
+          text: "报价已过期，请让助手重新核价",
+        },
+      };
+    }
+    const draft = this.draftFromProposal(proposal);
+    this.sessions.put(draft);
+    return { draft };
+  }
+
+  private draftFromProposal(proposal: AgentProposal): Draft {
+    const quote = proposal.quote;
+    const draft: Draft = {
+      id: proposal.id,
+      chatId: "agent",
+      storeCode: quote.storeCode,
+      storeName: quote.storeName,
+      items: [],
+      takeWayCode: quote.takeWayCode,
+      needTableware: quote.needTableware,
+      quote: {
+        priceFen: quote.priceFen,
+        discountFen: quote.discountFen,
+        tablewareFen: quote.tablewareFen,
+        lines: quote.lines.map((line) => ({
+          productCode: line.productCode,
+          productName: line.productName,
+          quantity: line.quantity,
+          subtotalFen: line.subtotalFen,
+        })),
+        takeWays: quote.takeWays.map((way) => ({ code: way.code, title: way.title })),
+      },
+      quotedAt: quote.quotedAt,
+      status: "priced",
+      eligibleCount: 0,
+      paybackLines: null,
+      pending: false,
+      comboDefault: false,
+    };
+    this.applyItems(
+      draft,
+      quote.items.map((item) => ({
+        productCode: item.productCode,
+        quantity: item.quantity,
+        name: item.name,
+      })),
+    );
+    return draft;
+  }
+
+  private syncProposal(draft: Draft): void {
+    const store = this.options.proposals;
+    if (!store) return;
+    const proposal = store.getProposal(draft.id);
+    if (!proposal || proposal.status !== "pending") return;
+    if (draft.status === "ordered") store.updateStatus(draft.id, "confirmed");
+    else if (draft.status === "cancelled") store.updateStatus(draft.id, "dismissed");
   }
 
   private trigger(kind: Trigger["kind"], eventId: string, operatorOpenId: string, action: ActionName): Trigger {

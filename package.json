@@ -2,14 +2,19 @@
   "name": "lark-mcd",
   "version": "0.1.0",
   "private": true,
-  "description": "麦麦卡片：在飞书里点麦当劳。私聊说「老样子」，核价卡片和会员卡小算盘都在本机运行。",
+  "description": "麦麦卡片：在飞书里点麦当劳。私聊说「老样子」，核价卡片和会员卡小算盘都在本机运行。Agent 入口只能查询和提议，不能下单。",
   "type": "module",
+  "bin": {
+    "lark-mcd": "./bin/lark-mcd.mjs"
+  },
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "start": "tsx src/index.ts",
     "demo": "tsx src/cli/demo.ts",
+    "agent": "tsx src/agent/cli.ts",
+    "pack-skill": "node scripts/pack-skill.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
