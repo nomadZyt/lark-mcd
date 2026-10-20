@@ -60,7 +60,18 @@ export function buildCard(model: CardModel): FeishuCard {
       return card(model.title, "wathet", [markdown(model.lines.join("\n"))]);
     case "agent-propose":
       return buildAgentPropose(model);
+    case "group-vote":
+      return buildGroupVote(model);
+    case "group-priced":
+      return buildGroupPriced(model);
+    case "group-status":
+      return buildGroupStatus(model);
   }
+}
+
+export function cardHasPaymentLink(card: FeishuCard): boolean {
+  const json = JSON.stringify(card);
+  return json.includes("payH5Url") || json.includes("open_url") || /https?:\/\//.test(json);
 }
 
 function buildPriced(model: Extract<CardModel, { kind: "priced" }>): FeishuCard {
@@ -227,6 +238,92 @@ function buildAgentPropose(model: Extract<CardModel, { kind: "agent-propose" }>)
     callbackButton("确认下单", "primary", { a: "order.confirm", sid: model.sessionId, v: 1 }),
     callbackButton("不吃了", "danger", { a: "order.dismiss", sid: model.sessionId, v: 1 }),
   ]);
+}
+
+function buildGroupVote(model: Extract<CardModel, { kind: "group-vote" }>): FeishuCard {
+  const elements: Record<string, unknown>[] = [
+    markdown(`事由：${model.scene}　时段：${model.slot}`),
+    markdown("价格是参考价，以发起人核价为准。随单购价没有放进候选。"),
+    markdown(model.signup),
+  ];
+  for (const candidate of model.candidates) {
+    elements.push(markdown(`${candidate.name}　参考价 ${formatYuanFromFen(candidate.referenceFen)}　共 ${candidate.total} 份`));
+    elements.push(
+      callbackButton("−", "default", { a: "group.tick", sid: model.sessionId, v: 1, code: candidate.productCode, delta: -1 }),
+    );
+    elements.push(
+      callbackButton("+", "default", { a: "group.tick", sid: model.sessionId, v: 1, code: candidate.productCode, delta: 1 }),
+    );
+  }
+  elements.push(callbackButton("我不吃了", "default", { a: "group.drop", sid: model.sessionId, v: 1 }));
+  elements.push(callbackButton("截止并核价", "primary", { a: "group.close", sid: model.sessionId, v: 1 }));
+  elements.push(callbackButton("取消本次拼单", "danger", { a: "group.cancel", sid: model.sessionId, v: 1 }));
+  elements.push(
+    markdown(
+      [
+        `最多 ${model.cap} 份。这场只对应这一家店、这一个时段。`,
+        "大家都可以改自己的份数。截止、核价和下单只有发起人可以点。",
+        "本工具不收款，AA 只记账，大家自行结算。",
+      ].join("\n"),
+    ),
+  );
+  return card(`${model.slot} 一起吃 · ${model.storeName}`, "orange", elements);
+}
+
+function buildGroupPriced(model: Extract<CardModel, { kind: "group-priced" }>): FeishuCard {
+  const shareText =
+    model.shares.length === 0
+      ? "还没有可分摊的金额"
+      : `每人应摊：${model.shares.map((share) => `${share.name} ${formatYuanFromFen(share.shareFen)}`).join(" · ")}`;
+  const elements: Record<string, unknown>[] = [
+    markdown(
+      [
+        `${model.storeName} · ${model.slot}`,
+        `合计 ${formatYuanFromFen(model.totalFen)}（优惠 ${formatYuanFromFen(model.discountFen)}）`,
+        model.tablewareFen > 0 ? `餐具 ${formatYuanFromFen(model.tablewareFen)}` : "",
+        "以实时核价为准",
+        shareText,
+        "除不尽的分由发起人承担。",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    ),
+    markdown(`事由：${model.scene}`),
+  ];
+  for (const scene of model.scenes) {
+    elements.push(
+      callbackButton(scene === model.scene ? `● ${scene}` : scene, scene === model.scene ? "primary" : "default", {
+        a: "group.scene",
+        sid: model.sessionId,
+        v: 1,
+        scene,
+      }),
+    );
+  }
+  elements.push(markdown("取餐方式"));
+  for (const way of model.takeWays) {
+    const selected = way.code === model.selectedTakeWay;
+    elements.push(
+      callbackButton(`${selected ? "●" : "○"} ${way.title}`, selected ? "primary" : "default", {
+        a: "group.takeway",
+        sid: model.sessionId,
+        v: 1,
+        takeWay: way.code,
+      }),
+    );
+  }
+  elements.push(callbackButton("确认下单（发起人）", "primary", { a: "group.confirm", sid: model.sessionId, v: 1 }));
+  elements.push(callbackButton("返回修改", "default", { a: "group.back", sid: model.sessionId, v: 1 }));
+  elements.push(markdown("付款链接只会私发给发起人。本工具不收款。"));
+  return card(`核价完成 · ${model.storeName}`, "orange", elements);
+}
+
+function buildGroupStatus(model: Extract<CardModel, { kind: "group-status" }>): FeishuCard {
+  const elements: Record<string, unknown>[] = [markdown(model.lines.join("\n"))];
+  if (model.refresh) {
+    elements.push(callbackButton("刷新取餐码", "primary", { a: "group.refresh", sid: model.sessionId, v: 1 }));
+  }
+  return card(model.title, model.refresh ? "green" : "wathet", elements);
 }
 
 function buildStores(model: Extract<CardModel, { kind: "stores" }>): FeishuCard {

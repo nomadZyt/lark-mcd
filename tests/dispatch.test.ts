@@ -1,15 +1,18 @@
 import { describe, expect, it } from "vitest";
 import type { FeishuCard } from "../src/cards/types.js";
 import { handleCardCallback, handleIncomingMessage, type Outbound } from "../src/bot/dispatch.js";
-import { calls, setup } from "./helpers.js";
+import { cardHasPaymentLink } from "../src/cards/build.js";
+import { calls, setup, setupGroup } from "./helpers.js";
 
 class MemoryOutbound implements Outbound {
   texts: string[] = [];
   patched: FeishuCard[] = [];
   sent: FeishuCard[] = [];
+  direct: { openId: string; card: FeishuCard }[] = [];
 
-  async sendCard(_chatId: string, card: FeishuCard): Promise<void> {
+  async sendCard(_chatId: string, card: FeishuCard): Promise<string | void> {
     this.sent.push(card);
+    return "om_sent";
   }
 
   async sendText(_chatId: string, text: string): Promise<void> {
@@ -18,6 +21,10 @@ class MemoryOutbound implements Outbound {
 
   async patchCard(_messageId: string, card: FeishuCard): Promise<void> {
     this.patched.push(card);
+  }
+
+  async sendDirectCard(openId: string, card: FeishuCard): Promise<void> {
+    this.direct.push({ openId, card });
   }
 }
 
@@ -87,6 +94,49 @@ describe("卡片回调", () => {
     );
     expect(ack.toast.content).toContain("只有发起人");
     await Promise.resolve();
+    expect(mcp.calls.length).toBe(before);
+  });
+
+  it("群成员勾选只更新卡片，不调用 MCP", async () => {
+    const { flow, group, mcp, owner } = setupGroup();
+    const outbound = new MemoryOutbound();
+    const runtime = { flow, group, outbound, ownerOpenId: owner };
+    handleIncomingMessage(
+      {
+        sender: { sender_id: { open_id: owner } },
+        message: {
+          message_id: "om_group",
+          chat_id: "oc_group",
+          chat_type: "group",
+          message_type: "text",
+          content: JSON.stringify({ text: "@_user_1 /麦麦 拼单 午饭 12:00" }),
+        },
+      },
+      runtime,
+    );
+    await waitFor(() => outbound.sent.length === 1);
+    const before = mcp.calls.length;
+    const ack = handleCardCallback(
+      {
+        operator: { open_id: "member-a", name: "小王" },
+        action: { value: { a: "group.tick", sid: "g-om_group", v: 1, code: "1440", delta: 1 } },
+        context: { open_message_id: "om_card", open_chat_id: "oc_group" },
+      },
+      runtime,
+    );
+    expect(ack.toast.content).toBe("处理中…");
+    await waitFor(() => outbound.patched.length === 1);
+    expect(mcp.calls.length).toBe(before);
+    expect(cardHasPaymentLink(outbound.patched[0]!)).toBe(false);
+    const blocked = handleCardCallback(
+      {
+        operator: { open_id: "member-a" },
+        action: { value: { a: "group.close", sid: "g-om_group", v: 1 } },
+        context: { open_message_id: "om_card", open_chat_id: "oc_group" },
+      },
+      runtime,
+    );
+    expect(blocked.toast.content).toContain("只有发起人");
     expect(mcp.calls.length).toBe(before);
   });
 

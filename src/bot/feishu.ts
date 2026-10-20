@@ -9,11 +9,23 @@ export class LarkOutbound implements Outbound {
     this.client = new Client({ appId, appSecret });
   }
 
-  async sendCard(chatId: string, card: FeishuCard): Promise<void> {
-    await this.client.im.v1.message.create({
+  async sendCard(chatId: string, card: FeishuCard): Promise<string | void> {
+    const response = await this.client.im.v1.message.create({
       params: { receive_id_type: "chat_id" },
       data: {
         receive_id: chatId,
+        msg_type: "interactive",
+        content: JSON.stringify(card),
+      },
+    });
+    return response.data?.message_id;
+  }
+
+  async sendDirectCard(openId: string, card: FeishuCard): Promise<void> {
+    await this.client.im.v1.message.create({
+      params: { receive_id_type: "open_id" },
+      data: {
+        receive_id: openId,
         msg_type: "interactive",
         content: JSON.stringify(card),
       },

@@ -51,6 +51,16 @@ describe("MCP guard", () => {
     );
   });
 
+  it("群截止的动作不能直接下单", () => {
+    const guard = new McpGuard({ ownerOpenId: "owner", dryRun: false });
+    expect(() =>
+      guard.begin("create-order", trigger({ action: "group.close", eventId: "group-close" }), {
+        draftId: "d1",
+        draftStatus: "priced",
+      }),
+    ).toThrow(/确认下单/);
+  });
+
   it("写操作必须来自卡片，草稿要处于已核价", () => {
     const guard = new McpGuard({ ownerOpenId: "owner", dryRun: false });
     expect(() =>

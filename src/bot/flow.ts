@@ -15,7 +15,8 @@ import {
   type OrderItem,
   type Trigger,
 } from "../core/types.js";
-import { eligibleWithOrder, isCombo, type Draft, type PriceQuote, type QuoteLine, SessionBook } from "./session.js";
+import { eligibleWithOrder, isCombo, type Draft, type QuoteLine, SessionBook } from "./session.js";
+import { readPriceQuote } from "./quote.js";
 import { itemsFromState, type StateStore } from "./state.js";
 import type { AgentProposal, ProposalStore } from "../agent/proposal-store.js";
 
@@ -37,6 +38,10 @@ export interface CardInput {
   takeWay?: string;
   storeCode?: string;
   storeName?: string;
+  productCode?: string;
+  delta?: number;
+  scene?: string;
+  operatorName?: string;
   form: Record<string, string>;
 }
 
@@ -44,6 +49,11 @@ export interface FlowResult {
   toast?: { type: "info" | "success" | "warning" | "error"; content: string };
   card?: FeishuCard;
   text?: string;
+  /** 只发给 Token 主人的私聊，例如付款链接。不会发到群里。 */
+  direct?: { openId: string; card: FeishuCard };
+  /** 刷新私聊卡片时，同步更新群里的那张卡片。 */
+  groupPatch?: { messageId: string; card: FeishuCard };
+  sessionId?: string;
 }
 
 export type Command =
@@ -67,6 +77,7 @@ export const HELP_TEXT = [
   "麦麦卡片",
   "私聊发「老样子」：按本机保存的配方核价。",
   "/麦麦 门店 城市 关键词：设置到店自取的门店。",
+  "群里 @我，发送 /麦麦 拼单 午饭 12:00：大家勾选，发起人一个人下单。",
   "下单后会给你麦当劳的付款链接，需要你自己付款。",
   "本工具不自动下单，不自动付款，不轮询，不领券。",
   "信息以麦当劳 App 显示为准。",
@@ -93,7 +104,10 @@ export class OrderFlow {
   async onMessage(input: IncomingMessage): Promise<FlowResult> {
     try {
       if (input.chatType === "group") {
-        return { text: "群拼单还在下一版。这一版请私聊我，发送「老样子」。" };
+        return { text: "群里请 @我，发送：/麦麦 拼单 午饭 12:00。成员只勾选，只有发起人可以核价和下单。" };
+      }
+      if (input.text.includes("拼单")) {
+        return { text: "拼单要在群里 @我，发送：/麦麦 拼单 午饭 12:00" };
       }
       if (input.openId !== this.options.ownerOpenId) {
         return { text: `${NOT_OWNER}。你的 open_id 是 ${input.openId}，写进本机 .env 的 OWNER_OPEN_ID 后重启。` };
@@ -293,6 +307,8 @@ export class OrderFlow {
       if (!envelope.success) return { text: explainMcpFailure(envelope), card: this.payCard(draft, explainMcpFailure(envelope)) };
       const detail = readOrderDetail(envelope.data, draft.realTotalFen ?? draft.quote?.priceFen ?? 0);
       draft.realTotalFen = detail.totalFen;
+      draft.orderStatus = detail.orderStatus || (detail.pickupCode ? "已支付" : "待支付");
+      draft.pickupCode = detail.pickupCode || undefined;
       if (detail.pickupCode) {
         return {
           card: buildCard({
@@ -361,7 +377,7 @@ export class OrderFlow {
         items: draft.items.map((item) => ({ productCode: item.productCode, quantity: item.quantity })),
       });
       if (second.success) {
-        const quote = readQuote(second.data);
+        const quote = readPriceQuote(second.data);
         if (quote) saveFen = draft.quote.priceFen - quote.priceFen;
       }
     }
@@ -434,7 +450,7 @@ export class OrderFlow {
       trigger,
     );
     if (!envelope.success) return { text: explainMcpFailure(envelope) };
-    const quote = readQuote(envelope.data);
+    const quote = readPriceQuote(envelope.data);
     if (!quote) return { text: "核价结果不完整" };
     draft.quote = quote;
     draft.quotedAt = this.options.now();
@@ -687,6 +703,29 @@ export class OrderFlow {
     else if (draft.status === "cancelled") store.updateStatus(draft.id, "dismissed");
   }
 
+  /** 群拼单把已经核好价的草稿交给原来的确认流程。守卫、演练模式和幂等都不变。 */
+  async submitPricedDraft(input: CardInput, draft: Draft): Promise<FlowResult> {
+    if (input.operatorOpenId !== this.options.ownerOpenId) {
+      return { toast: { type: "warning", content: NOT_OWNER } };
+    }
+    const existing = this.sessions.get(draft.id);
+    const target = existing?.status === "ordered" ? existing : draft;
+    if (target.pending) return { toast: { type: "info", content: "正在处理，请稍候" } };
+    this.sessions.put(target);
+    target.pending = true;
+    try {
+      const result = await this.confirm(input, target);
+      this.syncProposal(target);
+      return result;
+    } finally {
+      target.pending = false;
+    }
+  }
+
+  draftOf(sessionId: string): Draft | undefined {
+    return this.sessions.get(sessionId);
+  }
+
   private trigger(kind: Trigger["kind"], eventId: string, operatorOpenId: string, action: ActionName): Trigger {
     return { kind, eventId, operatorOpenId, action };
   }
@@ -718,43 +757,6 @@ function readStores(data: unknown): { storeCode: string; storeName: string }[] {
     if (typeof record.storeCode !== "string" || typeof record.storeName !== "string") return [];
     return [{ storeCode: record.storeCode, storeName: record.storeName }];
   });
-}
-
-function readQuote(data: unknown): PriceQuote | null {
-  if (!data || typeof data !== "object") return null;
-  const record = data as Record<string, unknown>;
-  if (typeof record.price !== "number" || !Array.isArray(record.productList)) return null;
-  const lines: QuoteLine[] = record.productList.flatMap((item) => {
-    if (!item || typeof item !== "object") return [];
-    const line = item as Record<string, unknown>;
-    if (typeof line.productCode !== "string" || typeof line.productName !== "string") return [];
-    return [
-      {
-        productCode: line.productCode,
-        productName: line.productName,
-        quantity: typeof line.quantity === "number" ? line.quantity : 1,
-        subtotalFen: typeof line.subtotal === "number" ? line.subtotal : 0,
-      },
-    ];
-  });
-  const takeWays = Array.isArray(record.takeWayList)
-    ? record.takeWayList.flatMap((item) => {
-        if (!item || typeof item !== "object") return [];
-        const way = item as Record<string, unknown>;
-        if (typeof way.code !== "string" || typeof way.title !== "string") return [];
-        return [{ code: way.code, title: way.title }];
-      })
-    : [];
-  return {
-    priceFen: record.price,
-    discountFen: typeof record.discount === "number" ? record.discount : 0,
-    tablewareFen: typeof record.tablewarePrice === "number" ? record.tablewarePrice : 0,
-    lines,
-    takeWays: takeWays.length > 0 ? takeWays : [
-      { code: "eat-in", title: "堂食" },
-      { code: "locker-out", title: "外带" },
-    ],
-  };
 }
 
 interface HistoryProduct {

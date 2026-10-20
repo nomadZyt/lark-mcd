@@ -29,6 +29,8 @@ export interface Draft {
   orderId?: string;
   payH5Url?: string;
   realTotalFen?: number;
+  orderStatus?: string;
+  pickupCode?: string;
   withOrder?: WithOrderArg;
   discountType?: string;
   eligibleCount: number;
