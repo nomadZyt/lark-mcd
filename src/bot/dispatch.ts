@@ -1,17 +1,20 @@
 import type { FeishuCard } from "../cards/types.js";
 import { redact } from "../core/parse.js";
+import type { GroupFlow } from "./group-flow.js";
 import type { CardInput, IncomingMessage, OrderFlow } from "./flow.js";
 
 export interface Outbound {
-  sendCard(chatId: string, card: FeishuCard): Promise<void>;
+  sendCard(chatId: string, card: FeishuCard): Promise<string | void>;
   sendText(chatId: string, text: string): Promise<void>;
   patchCard(messageId: string, card: FeishuCard): Promise<void>;
+  sendDirectCard(openId: string, card: FeishuCard): Promise<void>;
 }
 
 export interface Runtime {
   flow: OrderFlow;
   outbound: Outbound;
   ownerOpenId: string;
+  group?: GroupFlow;
 }
 
 export interface CardAck {
@@ -24,12 +27,21 @@ export interface CardAck {
 export function handleCardCallback(raw: unknown, runtime: Runtime): CardAck {
   const event = parseCardEvent(raw);
   if (!event) return { toast: { type: "error", content: "没有读懂这次点击" } };
-  if (event.operatorOpenId !== runtime.ownerOpenId) {
+  const memberVote = event.action === "group.tick" || event.action === "group.drop";
+  if (!memberVote && event.operatorOpenId !== runtime.ownerOpenId) {
     return { toast: { type: "warning", content: "只有发起人可以核价和下单" } };
   }
-  void runtime.flow
-    .onCard(event)
+  if (event.action.startsWith("group.") && !runtime.group) {
+    return { toast: { type: "error", content: "群拼单没有就绪" } };
+  }
+  const grouped =
+    Boolean(runtime.group) &&
+    (event.action.startsWith("group.") || (runtime.group?.owns(event.sessionId) === true && event.action === "order.refresh"));
+  const task = grouped && runtime.group ? runtime.group.onCard(event) : runtime.flow.onCard(event);
+  void task
     .then(async (result) => {
+      if (result.direct) await runtime.outbound.sendDirectCard(result.direct.openId, result.direct.card);
+      if (result.groupPatch) await runtime.outbound.patchCard(result.groupPatch.messageId, result.groupPatch.card);
       if (result.card && event.messageId) await runtime.outbound.patchCard(event.messageId, result.card);
       else if (result.text && event.chatId) await runtime.outbound.sendText(event.chatId, result.text);
     })
@@ -43,11 +55,14 @@ export function handleCardCallback(raw: unknown, runtime: Runtime): CardAck {
 export function handleIncomingMessage(raw: unknown, runtime: Runtime): void {
   const message = parseMessageEvent(raw);
   if (!message) return;
-  void runtime.flow
-    .onMessage(message)
+  const task = message.chatType === "group" && runtime.group ? runtime.group.onMessage(message) : runtime.flow.onMessage(message);
+  void task
     .then(async (result) => {
-      if (result.card) await runtime.outbound.sendCard(message.chatId, result.card);
-      else if (result.text) await runtime.outbound.sendText(message.chatId, result.text);
+      if (result.card) {
+        const messageId = await runtime.outbound.sendCard(message.chatId, result.card);
+        if (result.sessionId && typeof messageId === "string") runtime.group?.noteMessage(result.sessionId, messageId);
+      } else if (result.text) await runtime.outbound.sendText(message.chatId, result.text);
+      if (result.direct) await runtime.outbound.sendDirectCard(result.direct.openId, result.direct.card);
     })
     .catch((error: unknown) => {
       const text = redact(error instanceof Error ? error.message : "处理失败");
@@ -65,6 +80,13 @@ function toastFor(action: string): string {
       return "正在取消…";
     case "payback.calc":
       return "计算中…";
+    case "group.close":
+      return "核价中…";
+    case "group.confirm":
+      return "下单中…";
+    case "group.tick":
+    case "group.drop":
+      return "处理中…";
     default:
       return "处理中…";
   }
@@ -99,7 +121,7 @@ export function parseCardEvent(raw: unknown): CardInput | undefined {
   const header = root.header && typeof root.header === "object" ? (root.header as { event_id?: string }) : undefined;
   const event = unwrap(raw);
   if (!event) return undefined;
-  const operator = event.operator as { open_id?: string } | undefined;
+  const operator = event.operator as { open_id?: string; name?: string } | undefined;
   const action = event.action as Record<string, unknown> | undefined;
   if (!operator?.open_id || !action) return undefined;
   const value = action.value && typeof action.value === "object" ? (action.value as Record<string, unknown>) : {};
@@ -123,6 +145,10 @@ export function parseCardEvent(raw: unknown): CardInput | undefined {
     takeWay: typeof value.takeWay === "string" ? value.takeWay : undefined,
     storeCode: typeof value.storeCode === "string" ? value.storeCode : undefined,
     storeName: typeof value.storeName === "string" ? value.storeName : undefined,
+    productCode: typeof value.code === "string" ? value.code : undefined,
+    delta: typeof value.delta === "number" ? value.delta : undefined,
+    scene: typeof value.scene === "string" ? value.scene : undefined,
+    operatorName: typeof operator.name === "string" ? operator.name : undefined,
     form,
   };
 }

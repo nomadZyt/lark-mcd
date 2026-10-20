@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { defaultLedgerPath } from "./ledger.js";
 import { defaultStatePath } from "./state.js";
 
 const envSchema = z.object({
@@ -10,6 +11,9 @@ const envSchema = z.object({
   OWNER_OPEN_ID: z.string().optional(),
   DRY_RUN: z.string().optional(),
   STATE_PATH: z.string().optional(),
+  LEDGER_PATH: z.string().optional(),
+  BITABLE_APP_TOKEN: z.string().optional(),
+  BITABLE_TABLE_ID: z.string().optional(),
 });
 
 export interface AppConfig {
@@ -21,6 +25,9 @@ export interface AppConfig {
   ownerOpenId: string;
   dryRun: boolean;
   statePath: string;
+  ledgerPath: string;
+  bitableAppToken?: string;
+  bitableTableId?: string;
 }
 
 function blank(value: string | undefined): string | undefined {
@@ -38,6 +45,9 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     OWNER_OPEN_ID: env.OWNER_OPEN_ID,
     DRY_RUN: env.DRY_RUN,
     STATE_PATH: env.STATE_PATH,
+    LEDGER_PATH: env.LEDGER_PATH,
+    BITABLE_APP_TOKEN: env.BITABLE_APP_TOKEN,
+    BITABLE_TABLE_ID: env.BITABLE_TABLE_ID,
   });
   const token = blank(parsed.MCD_MCP_TOKEN);
   const mode = parsed.MCD_MODE ?? (token ? "real" : "mock");
@@ -58,5 +68,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     ownerOpenId,
     dryRun,
     statePath: blank(parsed.STATE_PATH) ?? defaultStatePath(),
+    ledgerPath: blank(parsed.LEDGER_PATH) ?? defaultLedgerPath(),
+    bitableAppToken: blank(parsed.BITABLE_APP_TOKEN),
+    bitableTableId: blank(parsed.BITABLE_TABLE_ID),
   };
 }

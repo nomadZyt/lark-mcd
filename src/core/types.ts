@@ -11,7 +11,9 @@ export type ActionName =
   | "agent.stores"
   | "agent.menu"
   | "agent.quote"
-  | "agent.status";
+  | "agent.status"
+  | "group.start"
+  | "group.close";
 
 export interface Trigger {
   kind: "message" | "card" | "agent";
@@ -102,6 +104,8 @@ export const ACTION_CALL_BUDGET: Record<ActionName, number> = {
   "agent.menu": 1,
   "agent.quote": 1,
   "agent.status": 1,
+  "group.start": 1,
+  "group.close": 1,
 };
 
 export const QUOTE_TTL_MS = 5 * 60 * 1000;

@@ -1,6 +1,8 @@
 import { McpGuard } from "../src/core/guard.js";
 import { loadFixtures, MockMcpClient } from "../src/core/mock-mcp.js";
 import { OrderFlow, type CardInput, type IncomingMessage } from "../src/bot/flow.js";
+import { GroupFlow } from "../src/bot/group-flow.js";
+import { MemoryLedger } from "../src/bot/ledger.js";
 import { SessionBook } from "../src/bot/session.js";
 import { loadDemoState, MemoryStateStore, type AppState } from "../src/bot/state.js";
 import type { ProposalStore } from "../src/agent/proposal-store.js";
@@ -24,6 +26,16 @@ export function setup(options?: {
     proposals: options?.proposals,
   });
   return { guard, mcp, state, flow, owner };
+}
+
+export function setupGroup(options?: { dryRun?: boolean; owner?: string; now?: () => number }) {
+  const base = setup(options);
+  const ledger = new MemoryLedger();
+  const group = new GroupFlow(base.mcp, base.state, ledger, base.flow, {
+    ownerOpenId: base.owner,
+    now: options?.now ?? (() => Date.parse("2026-10-19T12:00:00+08:00")),
+  });
+  return { ...base, ledger, group };
 }
 
 export function message(over: Partial<IncomingMessage> = {}): IncomingMessage {
