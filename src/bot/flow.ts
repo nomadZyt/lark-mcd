@@ -2,7 +2,8 @@ import { buildCard } from "../cards/build.js";
 import type { FeishuCard } from "../cards/types.js";
 import { GuardError } from "../core/guard.js";
 import type { McpClient } from "../core/mcp-client.js";
-import { yuanStringToFen } from "../core/money.js";
+import { matchMeals } from "../core/menu-match.js";
+import { formatYuanFromFen, yuanStringToFen } from "../core/money.js";
 import { explainMcpFailure, parseMealsPayload, redact } from "../core/parse.js";
 import { cardLabelFromDiscount, computePayback, frequencyFromOrders } from "../core/payback.js";
 import {
@@ -60,6 +61,8 @@ export type Command =
   | { type: "help" }
   | { type: "old-usual" }
   | { type: "store"; city: string; keyword: string }
+  | { type: "menu" }
+  | { type: "point"; query: string }
   | { type: "unknown" };
 
 export function parseCommand(text: string): Command {
@@ -68,6 +71,9 @@ export function parseCommand(text: string): Command {
     return { type: "help" };
   }
   if (normalized === "老样子" || normalized === "「老样子」") return { type: "old-usual" };
+  if (/^\/麦麦\s+菜单$/.test(normalized) || /^\/麦麦\s+点$/.test(normalized)) return { type: "menu" };
+  const point = /^\/麦麦\s+点\s+(.+)$/.exec(normalized);
+  if (point?.[1]?.trim()) return { type: "point", query: point[1].trim() };
   const store = /^\/麦麦\s+门店\s+(\S+)\s+(.+)$/.exec(normalized);
   if (store?.[1] && store[2]) return { type: "store", city: store[1], keyword: store[2].trim() };
   return { type: "unknown" };
@@ -76,6 +82,8 @@ export function parseCommand(text: string): Command {
 export const HELP_TEXT = [
   "麦麦卡片",
   "私聊发「老样子」：按本机保存的配方核价。",
+  "/麦麦 菜单：看已保存门店当前时段在卖的餐品，点一份再核价。",
+  "/麦麦 点 餐品名：按名字找餐品并核价。没找准就给你一份可选列表。",
   "/麦麦 门店 城市 关键词：设置到店自取的门店。",
   "群里 @我，发送 /麦麦 拼单 午饭 12:00：大家勾选，发起人一个人下单。",
   "下单后会给你麦当劳的付款链接，需要你自己付款。",
@@ -83,10 +91,15 @@ export const HELP_TEXT = [
   "信息以麦当劳 App 显示为准。",
 ].join("\n");
 
+const NO_STORE = "还没有默认门店。请先发送：/麦麦 门店 城市 关键词";
+const MENU_EMPTY = "当前菜单是空的，这个时段可能没有可点的餐品。";
+
 const NOT_OWNER = "只有发起人可以核价和下单";
 
 export class OrderFlow {
   private readonly menu = new Map<string, MealInfo>();
+  /** 同一次用户操作里已经拉过菜单，60006 回退时不必再查。 */
+  private readonly menuLoadedFor = new Set<string>();
   private lastSearch: { city: string; keyword: string } | undefined;
 
   constructor(
@@ -117,6 +130,8 @@ export class OrderFlow {
         return { text: command.type === "unknown" ? `没听懂。\n${HELP_TEXT}` : HELP_TEXT };
       }
       if (command.type === "store") return await this.searchStores(input, command.city, command.keyword);
+      if (command.type === "menu") return await this.browseMenu(input);
+      if (command.type === "point") return await this.pointMeal(input, command.query);
       return await this.oldUsual(input);
     } catch (error) {
       return this.fail(error);
@@ -129,6 +144,7 @@ export class OrderFlow {
         return { toast: { type: "warning", content: NOT_OWNER } };
       }
       if (input.action === "store.pick") return this.pickStore(input);
+      if (input.action === "menu.pick") return await this.pickMeal(input);
       const loaded = this.resolveDraft(input.sessionId);
       if (loaded.early) return loaded.early;
       const draft = loaded.draft;
@@ -217,7 +233,7 @@ export class OrderFlow {
   private async oldUsual(input: IncomingMessage): Promise<FlowResult> {
     const saved = this.state.load();
     if (!saved.store?.storeCode || !saved.store.storeName) {
-      return { text: "还没有默认门店。请先发送：/麦麦 门店 城市 关键词" };
+      return { text: NO_STORE };
     }
     const trigger = this.trigger("message", input.eventId, input.openId, "old-usual");
     let items: OrderItem[] | undefined =
@@ -449,7 +465,10 @@ export class OrderFlow {
       },
       trigger,
     );
-    if (!envelope.success) return { text: explainMcpFailure(envelope) };
+    if (!envelope.success) {
+      if (envelope.code === 60006) return await this.fallbackMenu(draft, trigger);
+      return { text: explainMcpFailure(envelope) };
+    }
     const quote = readPriceQuote(envelope.data);
     if (!quote) return { text: "核价结果不完整" };
     draft.quote = quote;
@@ -466,7 +485,138 @@ export class OrderFlow {
     return { card: this.pricedCard(draft) };
   }
 
-  private newDraft(input: IncomingMessage, storeCode: string, storeName: string, items: OrderItem[]): Draft {
+  private async browseMenu(input: IncomingMessage): Promise<FlowResult> {
+    const store = this.savedStore();
+    if (!store) return { text: NO_STORE };
+    const trigger = this.trigger("message", input.eventId, input.openId, "menu");
+    const loaded = await this.fetchMeals(store.storeCode, trigger);
+    if (!Array.isArray(loaded)) return loaded;
+    if (loaded.length === 0) return { text: MENU_EMPTY };
+    return {
+      card: this.menuCard(store.storeName, loaded, "点一份，我按这家店的当前时段核价。确认之前不会下单。", false),
+    };
+  }
+
+  private async pointMeal(input: IncomingMessage, query: string): Promise<FlowResult> {
+    const store = this.savedStore();
+    if (!store) return { text: NO_STORE };
+    const trigger = this.trigger("message", input.eventId, input.openId, "point");
+    const loaded = await this.fetchMeals(store.storeCode, trigger);
+    if (!Array.isArray(loaded)) return loaded;
+    if (loaded.length === 0) return { text: MENU_EMPTY };
+    const matched = matchMeals(query, loaded);
+    if (matched.kind === "quote") {
+      const draft = this.newDraft(
+        input,
+        store.storeCode,
+        store.storeName,
+        matched.meals.map((meal) => this.mealToItem(meal, 1)),
+      );
+      return await this.quoteDraft(draft, trigger);
+    }
+    if (matched.kind === "pick") {
+      return {
+        card: this.menuCard(store.storeName, matched.meals, `「${query}」对上了好几份，点一份我再核价。`, true),
+      };
+    }
+    return {
+      card: this.menuCard(
+        store.storeName,
+        loaded,
+        `没有找到「${query}」。下面是这家店现在卖的，点一份我再核价。`,
+        false,
+      ),
+    };
+  }
+
+  private async pickMeal(input: CardInput): Promise<FlowResult> {
+    const store = this.savedStore();
+    if (!store) return { toast: { type: "error", content: "还没有默认门店" }, text: NO_STORE };
+    if (!input.productCode) return { toast: { type: "error", content: "没有餐品编号" } };
+    const trigger = this.trigger("card", input.eventId, input.operatorOpenId, "menu.pick");
+    let meal = this.menu.get(input.productCode);
+    if (!meal) {
+      const loaded = await this.fetchMeals(store.storeCode, trigger);
+      if (!Array.isArray(loaded)) return loaded;
+      meal = loaded.find((item) => item.code === input.productCode);
+    }
+    if (!meal) {
+      const meals = [...this.menu.values()];
+      if (meals.length === 0) return { text: "这份餐品当前不在菜单里，换一个吧。" };
+      return {
+        card: this.menuCard(store.storeName, meals, "这份餐品当前不在菜单里，换一个吧。", false),
+      };
+    }
+    const draft = this.newDraft(
+      { eventId: input.eventId, chatId: input.chatId ?? "p2p" },
+      store.storeCode,
+      store.storeName,
+      [this.mealToItem(meal, 1)],
+    );
+    return await this.quoteDraft(draft, trigger);
+  }
+
+  private async fallbackMenu(draft: Draft, trigger: Trigger): Promise<FlowResult> {
+    const headline = explainMcpFailure({ success: false, code: 60006, message: "" });
+    const fresh = this.menuLoadedFor.has(trigger.eventId) && this.menu.size > 0;
+    if (!fresh) {
+      try {
+        const loaded = await this.fetchMeals(draft.storeCode, trigger);
+        if (!Array.isArray(loaded) && this.menu.size === 0) {
+          return { text: `${headline}\n${loaded.text ?? "菜单没有取到。"}` };
+        }
+      } catch (error) {
+        if (!(error instanceof GuardError && error.code === "BUDGET")) throw error;
+        if (this.menu.size === 0) return { text: `${headline}\n发送 /麦麦 菜单 看看现在卖什么。` };
+      }
+    }
+    const blocked = new Set(draft.items.map((item) => item.productCode));
+    let meals = [...this.menu.values()].filter((meal) => !blocked.has(meal.code));
+    if (meals.length === 0) meals = [...this.menu.values()];
+    if (meals.length === 0) return { text: `${headline}\n发送 /麦麦 菜单 看看现在卖什么。` };
+    return {
+      card: this.menuCard(draft.storeName, meals, `${headline}。下面是这家店现在卖的，点一份我再核价。`, false),
+    };
+  }
+
+  private async fetchMeals(storeCode: string, trigger: Trigger): Promise<MealInfo[] | FlowResult> {
+    const envelope = await this.mcp.call("query-meals", pickupBase(storeCode), trigger);
+    if (!envelope.success) return { text: explainMcpFailure(envelope) };
+    this.menuLoadedFor.add(trigger.eventId);
+    return this.replaceMeals(envelope);
+  }
+
+  private savedStore(): { storeCode: string; storeName: string } | undefined {
+    const saved = this.state.load();
+    if (!saved.store?.storeCode || !saved.store.storeName) return undefined;
+    return { storeCode: saved.store.storeCode, storeName: saved.store.storeName };
+  }
+
+  private menuCard(storeName: string, meals: MealInfo[], note: string, pick: boolean): FeishuCard {
+    const limit = pick ? 8 : 12;
+    const shown = meals.slice(0, limit);
+    const extra = meals.length - shown.length;
+    const text = extra > 0 ? `${note}\n还有 ${extra} 份没列全，发送 /麦麦 点 名字 继续找。` : note;
+    return buildCard({
+      kind: "menu",
+      title: `${pick ? "选一份" : "现在卖这些"} · ${storeName}`,
+      note: text,
+      items: shown.map((meal) => ({
+        productCode: meal.code,
+        name: meal.name,
+        priceText: referencePrice(meal.currentPrice),
+      })),
+    });
+  }
+
+  private replaceMeals(envelope: BusinessEnvelope): MealInfo[] {
+    const parsed = parseMealsPayload(envelope.data);
+    this.menu.clear();
+    for (const meal of parsed.meals) this.menu.set(meal.code, meal);
+    return parsed.meals;
+  }
+
+  private newDraft(input: { eventId: string; chatId: string }, storeCode: string, storeName: string, items: OrderItem[]): Draft {
     const draft: Draft = {
       id: `d-${input.eventId}`,
       chatId: input.chatId,
@@ -848,6 +998,14 @@ function readManualPrice(value: string | undefined): number | null {
     return yuanStringToFen(value.trim());
   } catch {
     return null;
+  }
+}
+
+function referencePrice(yuan: string): string {
+  try {
+    return formatYuanFromFen(yuanStringToFen(yuan));
+  } catch {
+    return yuan;
   }
 }
 

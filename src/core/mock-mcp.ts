@@ -145,6 +145,8 @@ export class MockMcpClient implements McpClient {
   readonly calls: { tool: string; args: Record<string, unknown> }[] = [];
   /** 测试用：拦住真正的回放，好确认卡片回调先返回 toast。 */
   hold: Promise<void> | null = null;
+  /** 测试用：这些商品编码在核价时返回 60006，用来模拟当前时段不可售。 */
+  unavailableCodes = new Set<string>();
   private readonly created = new Map<string, CreatedOrder>();
   private sequence = 0;
 
@@ -233,6 +235,14 @@ export class MockMcpClient implements McpClient {
     const blocked = this.rejectNonPickup(args);
     if (blocked) return blocked;
     const items = readItems(args.items);
+    if (items.some((item) => this.unavailableCodes.has(item.productCode))) {
+      return {
+        success: false,
+        code: 60006,
+        message: "商品已售罄或不可售，换一个商品或检查orderType/beType",
+        traceId: "demo-trace",
+      };
+    }
     const priced = priceBasket(this.fixtures.meals, items, {
       withOrder: Boolean(args.withOrder),
       needTableware: args.needTableware === true,

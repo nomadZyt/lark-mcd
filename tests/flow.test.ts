@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { collectCardText } from "../src/cards/build.js";
+import { HELP_TEXT, parseCommand } from "../src/bot/flow.js";
 import { QUOTE_TTL_MS } from "../src/core/types.js";
 import { loadDemoState } from "../src/bot/state.js";
 import { calls, card, message, setup } from "./helpers.js";
@@ -138,5 +139,165 @@ describe("私聊老样子", () => {
     expect(collectCardText(cancelled.card!)).toContain("不会调用取消");
     expect(calls(dryMcp, "cancel-order")).toBe(0);
     expect(calls(mcp, "cancel-order")).toBe(0);
+  });
+});
+
+describe("parseCommand", () => {
+  it("识别菜单和点餐", () => {
+    expect(parseCommand("/麦麦 菜单")).toEqual({ type: "menu" });
+    expect(parseCommand("/麦麦 点")).toEqual({ type: "menu" });
+    expect(parseCommand("/麦麦  点  麦辣鸡腿汉堡")).toEqual({ type: "point", query: "麦辣鸡腿汉堡" });
+    expect(parseCommand("/麦麦 点 麦辣鸡腿汉堡 麦辣鸡翅")).toEqual({
+      type: "point",
+      query: "麦辣鸡腿汉堡 麦辣鸡翅",
+    });
+    expect(parseCommand("老样子")).toEqual({ type: "old-usual" });
+    expect(parseCommand("/麦麦 门店 上海 人民广场")).toEqual({ type: "store", city: "上海", keyword: "人民广场" });
+    expect(HELP_TEXT).toContain("/麦麦 菜单");
+    expect(HELP_TEXT).toContain("/麦麦 点 餐品名");
+  });
+});
+
+describe("菜单和点餐", () => {
+  it("菜单点选后走原来的核价确认卡片", async () => {
+    const { flow, mcp } = setup();
+    const menu = await flow.onMessage(message({ text: "/麦麦 菜单", eventId: "menu-1" }));
+    const menuText = collectCardText(menu.card!);
+    expect(menuText).toContain("现在卖这些");
+    expect(menuText).toContain("麦辣鸡腿汉堡");
+    expect(menuText).toContain("就这个");
+    expect(JSON.stringify(menu.card)).toContain('"a":"menu.pick"');
+    expect(calls(mcp, "query-meals")).toBe(1);
+    expect(calls(mcp, "calculate-price")).toBe(0);
+
+    const picked = await flow.onCard(
+      card({
+        action: "menu.pick",
+        eventId: "pick-meal",
+        sessionId: undefined,
+        productCode: "1440",
+      }),
+    );
+    const priced = collectCardText(picked.card!);
+    expect(priced).toContain("麦辣鸡腿汉堡");
+    expect(priced).toContain("确认下单");
+    expect(calls(mcp, "calculate-price")).toBe(1);
+    expect(calls(mcp, "create-order")).toBe(0);
+
+    const confirmed = await flow.onCard(
+      card({ action: "order.confirm", eventId: "confirm-menu", sessionId: "d-pick-meal" }),
+    );
+    expect(collectCardText(confirmed.card!)).toContain("没有向麦当劳下单");
+    expect(calls(mcp, "create-order")).toBe(0);
+  });
+
+  it("点到唯一餐品时直接核价", async () => {
+    const { flow, mcp } = setup();
+    const result = await flow.onMessage(message({ text: "/麦麦 点 猪柳蛋麦满分", eventId: "point-1" }));
+    const text = collectCardText(result.card!);
+    expect(text).toContain("猪柳蛋麦满分");
+    expect(text).toContain("确认下单");
+    expect(calls(mcp, "query-meals")).toBe(1);
+    expect(calls(mcp, "calculate-price")).toBe(1);
+    const price = mcp.calls.find((call) => call.tool === "calculate-price");
+    expect(price?.args.items).toEqual([{ productCode: "5022", quantity: 1 }]);
+    expect(calls(mcp, "create-order")).toBe(0);
+  });
+
+  it("名字对上好几份时给出可选列表，不核价", async () => {
+    const { flow, mcp } = setup();
+    const result = await flow.onMessage(message({ text: "/麦麦 点 麦辣", eventId: "point-many" }));
+    const text = collectCardText(result.card!);
+    expect(text).toContain("对上了好几份");
+    expect(text).toContain("麦辣鸡腿汉堡");
+    expect(text).toContain("麦辣鸡翅");
+    expect(text).not.toContain("阳光橙");
+    expect(calls(mcp, "calculate-price")).toBe(0);
+    expect(calls(mcp, "query-meals")).toBe(1);
+  });
+
+  it("没有匹配时改发当前菜单", async () => {
+    const { flow, mcp } = setup();
+    const result = await flow.onMessage(message({ text: "/麦麦 点 巨无霸", eventId: "point-none" }));
+    const text = collectCardText(result.card!);
+    expect(text).toContain("没有找到「巨无霸」");
+    expect(text).toContain("麦辣鸡腿汉堡");
+    expect(text).toContain("阳光橙");
+    expect(calls(mcp, "calculate-price")).toBe(0);
+  });
+
+  it("老样子核价 60006 时改发菜单，而不是只回一句话", async () => {
+    const saved = loadDemoState();
+    saved.favorite = {
+      savedAt: "2026-10-21T08:00:00.000Z",
+      items: [{ productCode: "NOT-IN-DAYPART", quantity: 1, name: "早餐板烧" }],
+    };
+    const { flow, mcp } = setup({ state: saved });
+    const result = await flow.onMessage(message({ eventId: "usual-60006" }));
+    const text = collectCardText(result.card!);
+    expect(text).toContain("这个时段买不到");
+    expect(text).toContain("换一个");
+    expect(text).toContain("麦辣鸡腿汉堡");
+    expect(text).toContain("就这个");
+    expect(result.text).toBeUndefined();
+    expect(calls(mcp, "calculate-price")).toBe(1);
+    expect(calls(mcp, "query-meals")).toBe(1);
+    expect(calls(mcp, "create-order")).toBe(0);
+  });
+
+  it("最近一单在当前时段买不到时也改发菜单", async () => {
+    const saved = loadDemoState();
+    delete saved.favorite;
+    const { flow, mcp } = setup({ state: saved });
+    const base = mcp.fixtures.orders[0];
+    expect(base).toBeTruthy();
+    mcp.fixtures.orders = [
+      {
+        ...base!,
+        orderProductList: [
+          {
+            productCode: "BREAKFAST-ONLY",
+            productName: "板烧鸡腿麦满分",
+            quantity: 1,
+            comboItemList: [],
+          },
+        ],
+      },
+    ];
+    const result = await flow.onMessage(message({ eventId: "history-60006" }));
+    const text = collectCardText(result.card!);
+    expect(text).toContain("这个时段买不到");
+    expect(text).toContain("猪柳蛋麦满分");
+    expect(calls(mcp, "order-list")).toBe(1);
+    expect(calls(mcp, "calculate-price")).toBe(1);
+    expect(calls(mcp, "query-meals")).toBe(1);
+    expect(calls(mcp, "create-order")).toBe(0);
+  });
+
+  it("点餐核价 60006 时用刚拉到的菜单回退，不再查一次", async () => {
+    const { flow, mcp } = setup();
+    mcp.unavailableCodes.add("1440");
+    const result = await flow.onMessage(message({ text: "/麦麦 点 麦辣鸡腿汉堡", eventId: "point-60006" }));
+    const text = collectCardText(result.card!);
+    expect(text).toContain("这个时段买不到");
+    expect(text).toContain("猪柳蛋麦满分");
+    expect(text).not.toContain("参考价 ¥22.5");
+    expect(calls(mcp, "query-meals")).toBe(1);
+    expect(calls(mcp, "calculate-price")).toBe(1);
+    expect(calls(mcp, "create-order")).toBe(0);
+  });
+
+  it("没设门店或不是主人时菜单不调用 MCP", async () => {
+    const saved = loadDemoState();
+    delete saved.store;
+    const missing = setup({ state: saved });
+    const hint = await missing.flow.onMessage(message({ text: "/麦麦 菜单", eventId: "no-store" }));
+    expect(hint.text).toContain("/麦麦 门店");
+    expect(missing.mcp.calls).toHaveLength(0);
+
+    const { flow, mcp } = setup();
+    const denied = await flow.onMessage(message({ text: "/麦麦 点 汉堡", openId: "other", eventId: "other" }));
+    expect(denied.text).toContain("只有发起人");
+    expect(mcp.calls).toHaveLength(0);
   });
 });

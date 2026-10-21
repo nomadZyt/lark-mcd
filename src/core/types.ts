@@ -2,6 +2,9 @@ export type ActionName =
   | "store.search"
   | "store.pick"
   | "old-usual"
+  | "menu"
+  | "point"
+  | "menu.pick"
   | "swap"
   | "payback"
   | "reprice"
@@ -93,10 +96,13 @@ export const WRITE_TOOLS = ["create-order", "cancel-order"] as const;
 export const ACTION_CALL_BUDGET: Record<ActionName, number> = {
   "store.search": 1,
   "store.pick": 0,
-  "old-usual": 2,
+  "old-usual": 3,
+  menu: 1,
+  point: 2,
+  "menu.pick": 2,
   swap: 2,
   payback: 2,
-  reprice: 1,
+  reprice: 2,
   confirm: 1,
   refresh: 1,
   cancel: 1,

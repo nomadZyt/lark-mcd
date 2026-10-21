@@ -56,6 +56,8 @@ export function buildCard(model: CardModel): FeishuCard {
       return buildConfirmCancel(model);
     case "stores":
       return buildStores(model);
+    case "menu":
+      return buildMenu(model);
     case "note":
       return card(model.title, "wathet", [markdown(model.lines.join("\n"))]);
     case "agent-propose":
@@ -324,6 +326,22 @@ function buildGroupStatus(model: Extract<CardModel, { kind: "group-status" }>): 
     elements.push(callbackButton("刷新取餐码", "primary", { a: "group.refresh", sid: model.sessionId, v: 1 }));
   }
   return card(model.title, model.refresh ? "green" : "wathet", elements);
+}
+
+function buildMenu(model: Extract<CardModel, { kind: "menu" }>): FeishuCard {
+  const elements: Record<string, unknown>[] = [markdown(model.note)];
+  for (const item of model.items) {
+    elements.push(markdown(`${item.name}　参考价 ${item.priceText}`));
+    elements.push(
+      callbackButton("就这个", "primary", {
+        a: "menu.pick",
+        v: 1,
+        code: item.productCode,
+      }),
+    );
+  }
+  elements.push(markdown("选定后会按这家店核价。确认之前不会下单。"));
+  return card(model.title, "orange", elements);
 }
 
 function buildStores(model: Extract<CardModel, { kind: "stores" }>): FeishuCard {

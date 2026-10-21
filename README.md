@@ -14,6 +14,9 @@
 ## 这一版能做什么
 
 - 私聊「老样子」：用本机保存的配方调用 `calculate-price`，回一张到店自取的核价卡片。
+- 私聊 `/麦麦 菜单`：按已保存的门店拉当前时段菜单。点一份就走和「老样子」一样的核价、确认。
+- 私聊 `/麦麦 点 餐品名`：按名字找餐品。对上唯一一份就核价；没对上或对上好几份，给出可选列表。
+- 核价如果返回 60006（这个时段买不到），不再只回一句话，改发当前菜单，让你改选。
 - 点「确认下单」：默认演练模式，只展示将要提交的内容。把 `DRY_RUN=false` 写进本机 `.env` 之后，才会调用 `create-order`，并给出麦当劳返回的付款链接。
 - 点「我付好了，刷新」：调用一次 `query-order`，显示订单状态和取餐码。同一订单 10 秒内只能刷新一次。
 - 会员卡小算盘：再核一次带随单购参数的价格，算出餐品大约能省多少、按你填的频率大概几次回本。它不下单，也不购买会员卡。
@@ -98,6 +101,8 @@ BITABLE_TABLE_ID=
 
 点选一家门店后，配方保存在本机 `~/.lark-mcd/state.json`。
 
+看这家店当前时段卖什么：私聊 `/麦麦 菜单`，点一份「就这个」。想直接说名字：`/麦麦 点 麦辣鸡腿汉堡`。名字没对上，或者对上好几份，会换成可选列表。如果「老样子」里的餐品这个时段买不到，机器人会自己换上这张菜单，不用再发一次命令。确认之前都不会下单。
+
 ## 接到麦当劳 MCP
 
 Token 在 [麦当劳 MCP 开放平台](https://open.mcd.cn/mcp) 用你自己的手机号申请。它和你的会员账号绑在一起，只放本机 `.env`。
@@ -171,7 +176,7 @@ node bin/lark-mcd.mjs agent stores --near "上海 人民广场" --json
 
 ## English
 
-Order McDonald's inside Feishu. Say "the usual" in a direct message, get a priced card, and pay on McDonald's own page. A membership-card calculator only suggests whether a card pays off. It never buys one.
+Order McDonald's inside Feishu. Say "the usual" in a direct message, get a priced card, and pay on McDonald's own page. `/麦麦 菜单` lists what the saved store is selling now, and `/麦麦 点` plus a name quotes that meal. If the usual is unavailable this daypart, the bot shows the menu card instead of stopping. A membership-card calculator only suggests whether a card pays off. It never buys one.
 
 ```bash
 npm install

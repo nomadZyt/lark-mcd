@@ -80,6 +80,8 @@ function toastFor(action: string): string {
       return "正在取消…";
     case "payback.calc":
       return "计算中…";
+    case "menu.pick":
+      return "核价中…";
     case "group.close":
       return "核价中…";
     case "group.confirm":
