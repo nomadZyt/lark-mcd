@@ -61,6 +61,12 @@ export type CardModel =
       stores: { storeCode: string; storeName: string }[];
     }
   | {
+      kind: "menu";
+      title: string;
+      note: string;
+      items: { productCode: string; name: string; priceText: string }[];
+    }
+  | {
       kind: "note";
       title: string;
       lines: string[];

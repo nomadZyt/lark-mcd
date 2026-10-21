@@ -16,9 +16,13 @@
 | --- | --- | --- |
 | `/麦麦 门店 城市 关键词` | `query-nearby-stores`（`beType=1`，`searchType=2`） | 1 |
 | 点「选这家」 | 不调用，只写入本机状态 | 0 |
-| 私聊「老样子」，本机已有配方 | `calculate-price` | 1（预算 2） |
-| 私聊「老样子」，本机没有配方 | `order-list`，有已完成订单再 `calculate-price`；没有则改为 `query-meals`，等下一次点击再核价 | 2 |
+| 私聊「老样子」，本机已有配方 | `calculate-price`。若返回 60006，再 `query-meals` 发当前菜单 | 1（预算 3） |
+| 私聊「老样子」，本机没有配方 | `order-list`，有已完成订单再 `calculate-price`；没有则改为 `query-meals`，等下一次点击再核价。已完成订单核价返回 60006 时再查一次菜单 | 3 |
+| 私聊 `/麦麦 菜单` | `query-meals` | 1 |
+| 私聊 `/麦麦 点 餐品名` | `query-meals`。唯一匹配再 `calculate-price`；多个或没有匹配只发菜单卡片 | 2 |
+| 点菜单上的「就这个」 | 内存里没有这份餐品时先 `query-meals`，然后 `calculate-price`。60006 时改发菜单 | 2 |
 | 点「换一换」 | 菜单不在内存里时 `query-meals`，然后 `calculate-price` | 2 |
+| 点「重新核价」 | `calculate-price`。若返回 60006，再 `query-meals` | 2 |
 | 点「算一算」 | `calculate-price`（带 `withOrder`）；需要频率而又没填时再 `order-list`。菜单不在内存里时先 `query-meals` | 2 |
 | 点「确认下单」 | `create-order`。演练模式不调用 | 1 |
 | 点「我付好了，刷新」 | `query-order`。同一订单 10 秒内一次 | 1 |
